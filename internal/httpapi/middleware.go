@@ -9,7 +9,19 @@ import (
 func CORS(origin string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Access-Control-Allow-Origin", origin)
+			// A literal "*" can't be combined with Allow-Credentials: true —
+			// browsers reject that combination outright. When origin is
+			// configured as "*" (allow any site), reflect the actual
+			// request's Origin back instead, which satisfies the spec while
+			// still allowing every origin.
+			allowOrigin := origin
+			if origin == "*" {
+				if reqOrigin := r.Header.Get("Origin"); reqOrigin != "" {
+					allowOrigin = reqOrigin
+					w.Header().Set("Vary", "Origin")
+				}
+			}
+			w.Header().Set("Access-Control-Allow-Origin", allowOrigin)
 			w.Header().Set("Access-Control-Allow-Credentials", "true")
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
