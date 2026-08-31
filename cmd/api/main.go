@@ -38,9 +38,12 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", server.HealthHandler)
 	mux.HandleFunc("POST /api/partner/ai/chat", server.ChatHandler)
-	mux.Handle("PATCH /api/admin/partners/{id}/onboarding-stage", httpapi.Auth(supa, supabaseConfigured)(http.HandlerFunc(server.AdminSetOnboardingStageHandler)))
 	mux.Handle("GET /api/partner/onboarding-stage", httpapi.Auth(supa, supabaseConfigured)(http.HandlerFunc(server.PartnerGetOnboardingStageHandler)))
 	mux.Handle("POST /api/partner/onboarding-stage/ack", httpapi.Auth(supa, supabaseConfigured)(http.HandlerFunc(server.PartnerAckOnboardingStageHandler)))
+	mux.Handle("GET /api/admin/partners/{id}/onboarding-checklist/summary", httpapi.Auth(supa, supabaseConfigured)(http.HandlerFunc(server.AdminGetOnboardingChecklistSummaryHandler)))
+	mux.Handle("GET /api/admin/partners/{id}/onboarding-checklist", httpapi.Auth(supa, supabaseConfigured)(http.HandlerFunc(server.AdminGetOnboardingChecklistHandler)))
+	mux.Handle("PATCH /api/admin/partners/{id}/onboarding-checklist/{itemKey}", httpapi.Auth(supa, supabaseConfigured)(http.HandlerFunc(server.AdminToggleChecklistItemHandler)))
+	mux.Handle("POST /api/admin/partners/{id}/onboarding-checklist/complete-stage", httpapi.Auth(supa, supabaseConfigured)(http.HandlerFunc(server.AdminCompleteOnboardingStageHandler)))
 
 	handler := httpapi.Chain(mux, httpapi.Recover, httpapi.RequestLogger, httpapi.CORS(cfg.CORSOrigin))
 

@@ -135,6 +135,37 @@ func (c *Client) setServiceRoleHeaders(req *http.Request) {
 	req.Header.Set("Authorization", "Bearer "+c.serviceRoleKey)
 }
 
+// restUpsert performs a PostgREST POST with an upsert Prefer header against
+// the given table, resolving conflicts on the given comma-separated column
+// list (must match a unique constraint on the table).
+func (c *Client) restUpsert(ctx context.Context, table, onConflict string, body any) error {
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("encode %s upsert body: %w", table, err)
+	}
+
+	reqURL := fmt.Sprintf("%s/rest/v1/%s?on_conflict=%s", c.baseURL, table, url.QueryEscape(onConflict))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, bytes.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("build %s upsert request: %w", table, err)
+	}
+	c.setServiceRoleHeaders(req)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Prefer", "resolution=merge-duplicates")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("call %s upsert: %w", table, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusNoContent {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("%s upsert returned status %d: %s", table, resp.StatusCode, string(respBody))
+	}
+	return nil
+}
+
 // IsAdmin replicates the is_admin() SQL function: does a row exist in
 // `admins` whose id equals this Supabase Auth user id?
 func (c *Client) IsAdmin(ctx context.Context, userID string) (bool, error) {
@@ -187,5 +218,54 @@ func (c *Client) MarkOnboardingStageSeen(ctx context.Context, partnerID string) 
 	query := fmt.Sprintf("id=eq.%s", url.QueryEscape(partnerID))
 	return c.restPatch(ctx, "partners", query, map[string]string{
 		"onboarding_stage_seen_at": time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
+// SetPartnerStatus sets a partner's lifecycle status (admin-only action,
+// authorization enforced by the caller before this is invoked). Used to
+// flip a partner from 'onboarding' to 'active' once every onboarding-stage
+// checklist item, across all stages, is complete.
+func (c *Client) SetPartnerStatus(ctx context.Context, partnerID, status string) error {
+	query := fmt.Sprintf("id=eq.%s", url.QueryEscape(partnerID))
+	return c.restPatch(ctx, "partners", query, map[string]string{"status": status})
+}
+
+// ChecklistItemCompletion is one row of onboarding-checklist completion
+// state for a partner.
+type ChecklistItemCompletion struct {
+	ItemKey   string `json:"item_key"`
+	Completed bool   `json:"completed"`
+}
+
+// ListChecklistCompletions returns the completion state of every checklist
+// item recorded so far for a partner within one stage. Items never toggled
+// on for this partner simply won't appear — callers should treat any item
+// key absent from the result as incomplete.
+func (c *Client) ListChecklistCompletions(ctx context.Context, partnerID, stage string) ([]ChecklistItemCompletion, error) {
+	var rows []ChecklistItemCompletion
+	query := fmt.Sprintf(
+		"partner_id=eq.%s&stage=eq.%s&select=item_key,completed",
+		url.QueryEscape(partnerID), url.QueryEscape(stage),
+	)
+	if err := c.restGet(ctx, "partner_onboarding_checklist", query, &rows); err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+// SetChecklistItemCompletion upserts one checklist item's completion state
+// for a partner (admin-only action, item key validated by the caller
+// against the static per-stage item catalog before this is invoked).
+func (c *Client) SetChecklistItemCompletion(ctx context.Context, partnerID, stage, itemKey string, completed bool) error {
+	var completedAt any
+	if completed {
+		completedAt = time.Now().UTC().Format(time.RFC3339)
+	}
+	return c.restUpsert(ctx, "partner_onboarding_checklist", "partner_id,item_key", map[string]any{
+		"partner_id":   partnerID,
+		"stage":        stage,
+		"item_key":     itemKey,
+		"completed":    completed,
+		"completed_at": completedAt,
 	})
 }
