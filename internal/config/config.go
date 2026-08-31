@@ -7,20 +7,24 @@ import (
 )
 
 type Config struct {
-	Port         string
-	GeminiAPIKey string
-	GeminiModel  string
-	CORSOrigin   string
+	Port                   string
+	GeminiAPIKey           string
+	GeminiModel            string
+	CORSOrigin             string
+	SupabaseURL            string
+	SupabaseServiceRoleKey string
 }
 
 func Load() Config {
 	loadDotEnv(".env")
 
 	return Config{
-		Port:         getEnv("PORT", "4100"),
-		GeminiAPIKey: os.Getenv("GEMINI_API_KEY"),
-		GeminiModel:  getEnv("GEMINI_MODEL", "gemini-3.5-flash-lite"),
-		CORSOrigin:   getEnv("CORS_ORIGIN", "*"),
+		Port:                   getEnv("PORT", "4100"),
+		GeminiAPIKey:           os.Getenv("GEMINI_API_KEY"),
+		GeminiModel:            getEnv("GEMINI_MODEL", "gemini-3.5-flash-lite"),
+		CORSOrigin:             getEnv("CORS_ORIGIN", "*"),
+		SupabaseURL:            getEnv("SUPABASE_URL", ""),
+		SupabaseServiceRoleKey: os.Getenv("SUPABASE_SERVICE_ROLE_KEY"),
 	}
 }
 

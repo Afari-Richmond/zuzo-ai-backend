@@ -9,6 +9,7 @@ import (
 
 	"zuzo.com/backend/internal/ai"
 	"zuzo.com/backend/internal/data"
+	"zuzo.com/backend/internal/supabase"
 )
 
 const (
@@ -19,6 +20,8 @@ const (
 type Server struct {
 	AI           *ai.Client
 	AIConfigured bool
+
+	Supabase *supabase.Client
 }
 
 type chatRequest struct {

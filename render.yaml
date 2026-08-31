@@ -13,3 +13,7 @@ services:
             value: gemini-3.5-flash-lite
           - key: CORS_ORIGIN
             value: https://zuzogp.com
+          - key: SUPABASE_URL
+            value: https://rcrlrwlgewzjtzqcewop.supabase.co
+          - key: SUPABASE_SERVICE_ROLE_KEY
+            sync: false

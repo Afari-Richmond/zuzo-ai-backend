@@ -12,6 +12,7 @@ import (
 	"zuzo.com/backend/internal/ai"
 	"zuzo.com/backend/internal/config"
 	"zuzo.com/backend/internal/httpapi"
+	"zuzo.com/backend/internal/supabase"
 )
 
 func main() {
@@ -21,14 +22,25 @@ func main() {
 		log.Println("warning: GEMINI_API_KEY is not set — /api/partner/ai/chat will return 503 until it is configured")
 	}
 
+	supabaseConfigured := cfg.SupabaseURL != "" && cfg.SupabaseServiceRoleKey != ""
+	if !supabaseConfigured {
+		log.Println("warning: SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY not set — onboarding-stage endpoints will return 503 until configured")
+	}
+	supa := supabase.NewClient(cfg.SupabaseURL, cfg.SupabaseServiceRoleKey)
+
 	server := &httpapi.Server{
 		AI:           ai.NewClient(cfg.GeminiAPIKey, cfg.GeminiModel),
 		AIConfigured: cfg.GeminiAPIKey != "",
+
+		Supabase: supa,
 	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", server.HealthHandler)
 	mux.HandleFunc("POST /api/partner/ai/chat", server.ChatHandler)
+	mux.Handle("PATCH /api/admin/partners/{id}/onboarding-stage", httpapi.Auth(supa, supabaseConfigured)(http.HandlerFunc(server.AdminSetOnboardingStageHandler)))
+	mux.Handle("GET /api/partner/onboarding-stage", httpapi.Auth(supa, supabaseConfigured)(http.HandlerFunc(server.PartnerGetOnboardingStageHandler)))
+	mux.Handle("POST /api/partner/onboarding-stage/ack", httpapi.Auth(supa, supabaseConfigured)(http.HandlerFunc(server.PartnerAckOnboardingStageHandler)))
 
 	handler := httpapi.Chain(mux, httpapi.Recover, httpapi.RequestLogger, httpapi.CORS(cfg.CORSOrigin))
 
