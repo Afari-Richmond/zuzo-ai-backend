@@ -40,6 +40,7 @@ func main() {
 	mux.HandleFunc("POST /api/partner/ai/chat", server.ChatHandler)
 	mux.Handle("GET /api/partner/onboarding-stage", httpapi.Auth(supa, supabaseConfigured)(http.HandlerFunc(server.PartnerGetOnboardingStageHandler)))
 	mux.Handle("POST /api/partner/onboarding-stage/ack", httpapi.Auth(supa, supabaseConfigured)(http.HandlerFunc(server.PartnerAckOnboardingStageHandler)))
+	mux.Handle("GET /api/partner/onboarding-progress", httpapi.Auth(supa, supabaseConfigured)(http.HandlerFunc(server.PartnerGetOnboardingProgressHandler)))
 	mux.Handle("GET /api/admin/partners/{id}/onboarding-checklist/summary", httpapi.Auth(supa, supabaseConfigured)(http.HandlerFunc(server.AdminGetOnboardingChecklistSummaryHandler)))
 	mux.Handle("GET /api/admin/partners/{id}/onboarding-checklist", httpapi.Auth(supa, supabaseConfigured)(http.HandlerFunc(server.AdminGetOnboardingChecklistHandler)))
 	mux.Handle("PATCH /api/admin/partners/{id}/onboarding-checklist/{itemKey}", httpapi.Auth(supa, supabaseConfigured)(http.HandlerFunc(server.AdminToggleChecklistItemHandler)))

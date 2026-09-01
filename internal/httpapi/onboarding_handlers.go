@@ -68,6 +68,129 @@ func (s *Server) PartnerGetOnboardingStageHandler(w http.ResponseWriter, r *http
 	})
 }
 
+// partnerStageProgress is one stage's entry in the full progress view — the
+// partner-facing analog of AdminGetOnboardingChecklistSummaryHandler +
+// AdminGetOnboardingChecklistHandler combined into a single read-only call,
+// since a partner views this rarely (unlike admin, which polls/toggles).
+type partnerStageProgress struct {
+	Stage          string                     `json:"stage"`
+	Status         string                     `json:"status"` // "complete" | "current" | "locked"
+	TotalItems     int                        `json:"totalItems"`
+	CompletedItems int                        `json:"completedItems"`
+	SubSteps       []checklistSubStepResponse `json:"subSteps"`
+}
+
+// PartnerGetOnboardingProgressHandler returns every onboarding stage with
+// its lock/current/complete status and full sub-step/item breakdown, so the
+// partner can see exactly where they are and what's left — unlike
+// PartnerGetOnboardingStageHandler, which only exposes the current stage's
+// label. Read-only: no PATCH counterpart, unlike the admin checklist
+// endpoints this mirrors.
+// GET /api/partner/onboarding-progress
+func (s *Server) PartnerGetOnboardingProgressHandler(w http.ResponseWriter, r *http.Request) {
+	user, ok := userFromContext(r)
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "missing caller identity"})
+		return
+	}
+
+	partner, err := s.Supabase.FindPartnerByAuthUserID(r.Context(), user.ID)
+	if err != nil {
+		log.Printf("FindPartnerByAuthUserID failed: %v", err)
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "failed to load partner"})
+		return
+	}
+	if partner == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "no partner record for this account"})
+		return
+	}
+
+	currentIndex := -1
+	if partner.Stage != nil {
+		currentIndex = 0
+		for i, stage := range onboardingStages {
+			if stage == *partner.Stage {
+				currentIndex = i
+				break
+			}
+		}
+	}
+
+	stages := make([]partnerStageProgress, 0, len(onboardingStages))
+	for i, stage := range onboardingStages {
+		subSteps := checklistCatalog[stage]
+		totalKeys := checklistItemKeys(stage)
+
+		var status string
+		var completedKeys map[string]bool
+		switch {
+		case currentIndex == -1:
+			status = "locked"
+			completedKeys = map[string]bool{}
+		case i < currentIndex:
+			status = "complete"
+			completedKeys = make(map[string]bool, len(totalKeys))
+			for _, key := range totalKeys {
+				completedKeys[key] = true
+			}
+		case i == currentIndex:
+			status = "current"
+			completions, err := s.Supabase.ListChecklistCompletions(r.Context(), partner.ID, stage)
+			if err != nil {
+				log.Printf("ListChecklistCompletions failed for stage %q: %v", stage, err)
+				writeJSON(w, http.StatusBadGateway, map[string]string{"error": "failed to load onboarding progress"})
+				return
+			}
+			completedKeys = make(map[string]bool, len(completions))
+			for _, c := range completions {
+				if c.Completed {
+					completedKeys[c.ItemKey] = true
+				}
+			}
+		default:
+			status = "locked"
+			completedKeys = map[string]bool{}
+		}
+
+		respSubSteps := make([]checklistSubStepResponse, 0, len(subSteps))
+		completedCount := 0
+		for _, sub := range subSteps {
+			items := make([]checklistItemResponse, 0, len(sub.Items))
+			for _, item := range sub.Items {
+				completed := completedKeys[item.Key]
+				if completed {
+					completedCount++
+				}
+				items = append(items, checklistItemResponse{
+					Key:         item.Key,
+					Label:       item.Label,
+					Description: item.Description,
+					Completed:   completed,
+				})
+			}
+			respSubSteps = append(respSubSteps, checklistSubStepResponse{Title: sub.Title, Items: items})
+		}
+
+		stages = append(stages, partnerStageProgress{
+			Stage:          stage,
+			Status:         status,
+			TotalItems:     len(totalKeys),
+			CompletedItems: completedCount,
+			SubSteps:       respSubSteps,
+		})
+	}
+
+	var currentStage *string
+	if currentIndex != -1 {
+		currentStage = &onboardingStages[currentIndex]
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"currentStage": currentStage,
+		"stages":       stages,
+	})
+}
+
 // PartnerAckOnboardingStageHandler marks the current stage as seen, so the
 // one-time success modal doesn't fire again until the stage next changes.
 // POST /api/partner/onboarding-stage/ack
