@@ -121,35 +121,37 @@ func (s *Server) PartnerGetOnboardingProgressHandler(w http.ResponseWriter, r *h
 		subSteps := checklistCatalog[stage]
 		totalKeys := checklistItemKeys(stage)
 
+		// Always read the real completion state for every stage — a stage
+		// is only supposed to advance once every item in it is complete
+		// (AdminCompleteOnboardingStageHandler re-validates this before
+		// advancing), but admin can still toggle any item in any stage
+		// directly (including a passed stage, or one not reached yet —
+		// the admin UI no longer locks stage navigation), and the
+		// partner's view needs to reflect that live rather than assuming
+		// a past stage is frozen at 100% or a future one is untouched.
 		var status string
-		var completedKeys map[string]bool
 		switch {
 		case currentIndex == -1:
 			status = "locked"
-			completedKeys = map[string]bool{}
 		case i < currentIndex:
 			status = "complete"
-			completedKeys = make(map[string]bool, len(totalKeys))
-			for _, key := range totalKeys {
-				completedKeys[key] = true
-			}
 		case i == currentIndex:
 			status = "current"
-			completions, err := s.Supabase.ListChecklistCompletions(r.Context(), partner.ID, stage)
-			if err != nil {
-				log.Printf("ListChecklistCompletions failed for stage %q: %v", stage, err)
-				writeJSON(w, http.StatusBadGateway, map[string]string{"error": "failed to load onboarding progress"})
-				return
-			}
-			completedKeys = make(map[string]bool, len(completions))
-			for _, c := range completions {
-				if c.Completed {
-					completedKeys[c.ItemKey] = true
-				}
-			}
 		default:
 			status = "locked"
-			completedKeys = map[string]bool{}
+		}
+
+		completions, err := s.Supabase.ListChecklistCompletions(r.Context(), partner.ID, stage)
+		if err != nil {
+			log.Printf("ListChecklistCompletions failed for stage %q: %v", stage, err)
+			writeJSON(w, http.StatusBadGateway, map[string]string{"error": "failed to load onboarding progress"})
+			return
+		}
+		completedKeys := make(map[string]bool, len(completions))
+		for _, c := range completions {
+			if c.Completed {
+				completedKeys[c.ItemKey] = true
+			}
 		}
 
 		respSubSteps := make([]checklistSubStepResponse, 0, len(subSteps))
